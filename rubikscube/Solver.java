@@ -7,7 +7,6 @@ import java.nio.file.Paths;
 import java.util.List;
 
 public class Solver {
-
     public static void main(String[] args) {
         if (args.length < 2) {
             System.out.println("File names are not specified");
@@ -36,13 +35,11 @@ public class Solver {
                 return;
             }
 
-
-            // System.out.println("Solution (Kociemba): " + sol);
             System.out.println("Solution: " + sol);
             long endTime = System.currentTimeMillis();
             System.out.println("Time taken: " + (endTime - startTime) + "ms");
 
-            // 4) Write to output file (single line)
+            //Write to output file
             writeSolution(outputPath, sol);
 
         } catch (IOException e) {
@@ -64,7 +61,7 @@ public class Solver {
             String line = padRight(lines.get(row), 6);
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(3 + col);
-                f[CubeMapping.U1 + row * 3 + col] = c;
+                f[Facelets.U1 + row * 3 + col] = c;
             }
         }
 
@@ -73,22 +70,22 @@ public class Solver {
 
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(col);
-                f[CubeMapping.L1 + row * 3 + col] = c;
+                f[Facelets.L1 + row * 3 + col] = c;
             }
 
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(3 + col);
-                f[CubeMapping.F1 + row * 3 + col] = c;
+                f[Facelets.F1 + row * 3 + col] = c;
             }
 
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(6 + col);
-                f[CubeMapping.R1 + row * 3 + col] = c;
+                f[Facelets.R1 + row * 3 + col] = c;
             }
 
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(9 + col);
-                f[CubeMapping.B1 + row * 3 + col] = c;
+                f[Facelets.B1 + row * 3 + col] = c;
             }
         }
 
@@ -96,7 +93,7 @@ public class Solver {
             String line = padRight(lines.get(6 + row), 6);
             for (int col = 0; col < 3; col++) {
                 char c = line.charAt(3 + col);
-                f[CubeMapping.D1 + row * 3 + col] = c;
+                f[Facelets.D1 + row * 3 + col] = c;
             }
         }
 

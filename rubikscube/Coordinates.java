@@ -1,52 +1,50 @@
 package rubikscube;
 
 class Coordinates {
-    static final int N_MOVES = 18;
-    static final int N_MOVES2 = 10;
-
-    static final int N_SLICE = 495;
-    static final int N_TWIST = 2187;
-    static final int N_TWIST_SYM = 324;
-    static final int N_FLIP = 2048;
-    static final int N_FLIP_SYM = 336;
-    static final int N_PERM = 40320;
-    static final int N_PERM_SYM = 2768;
-    static final int N_MPERM = 24;
-    static final int N_COMB = PhaseSolver.USE_COMBP_PRUN ? 140 : 70;
-    static final int P2_PARITY_MOVE = PhaseSolver.USE_COMBP_PRUN ? 0xA5 : 0;
-
-
-
-    //phase1
-    static char[][] UDSliceMove = new char[N_SLICE][N_MOVES];
-    static char[][] TwistMove = new char[N_TWIST_SYM][N_MOVES];
-    static char[][] FlipMove = new char[N_FLIP_SYM][N_MOVES];
-    static char[][] UDSliceConj = new char[N_SLICE][8];
-    static int[] UDSliceTwistPrun = new int[N_SLICE * N_TWIST_SYM / 8 + 1];
-    static int[] UDSliceFlipPrun = new int[N_SLICE * N_FLIP_SYM / 8 + 1];
-    static int[] TwistFlipPrun = PhaseSolver.USE_TWIST_FLIP_PRUN ? new int[N_FLIP * N_TWIST_SYM / 8 + 1] : null;
-
-    //phase2
-    static char[][] CPermMove = new char[N_PERM_SYM][N_MOVES2];
-    static char[][] EPermMove = new char[N_PERM_SYM][N_MOVES2];
-    static char[][] MPermMove = new char[N_MPERM][N_MOVES2];
-    static char[][] MPermConj = new char[N_MPERM][16];
-    static char[][] CCombPMove;
-    static char[][] CCombPConj = new char[N_COMB][16];
-    static int[] MCPermPrun = new int[N_MPERM * N_PERM_SYM / 8 + 1];
-    static int[] EPermCCombPPrun = new int[N_COMB * N_PERM_SYM / 8 + 1];
-
-
+    //0 = nothing
+    //1 = partial (phase 1 only)
+    //2 = full init
     static int initLevel = 0;
 
+    static char[][] UDSliceMove = new char[Constants.N_SLICE][Constants.N_MOVES_PHASE1];
+
+    static char[][] TwistMove = new char[Constants.N_TWIST_SYM][Constants.N_MOVES_PHASE1];
+
+    static char[][] FlipMove = new char[Constants.N_FLIP_SYM][Constants.N_MOVES_PHASE1];
+
+    static char[][] UDSliceConj = new char[Constants.N_SLICE][8];
+
+    static int[] UDSliceTwistPrun = new int[Constants.N_SLICE * Constants.N_TWIST_SYM / 8 + 1];
+
+    static int[] UDSliceFlipPrun = new int[Constants.N_SLICE * Constants.N_FLIP_SYM / 8 + 1];
+
+    static int[] TwistFlipPrun = PhaseSolver.USE_TWIST_FLIP_PRUN ? new int[Constants.N_FLIP * Constants.N_TWIST_SYM / 8 + 1] : null;
+
+
+    static char[][] CPermMove = new char[Constants.N_PERM_SYM][Constants.N_MOVES_PHASE2];
+
+    static char[][] EPermMove = new char[Constants.N_PERM_SYM][Constants.N_MOVES_PHASE2];
+
+    static char[][] MPermMove = new char[Constants.N_MPERM][Constants.N_MOVES_PHASE2];
+
+    static char[][] MPermConj = new char[Constants.N_MPERM][16];
+
+    static char[][] CCombPMove;
+    static char[][] CCombPConj = new char[Constants.N_COMB][16];
+
+    static int[] MCPermPrun = new int[Constants.N_MPERM * Constants.N_PERM_SYM / 8 + 1];
+
+    static int[] EPermCCombPPrun = new int[Constants.N_COMB * Constants.N_PERM_SYM / 8 + 1];
+
+
     static synchronized void init(boolean fullInit) {
-        if (initLevel == 2 || (initLevel == 1 && !fullInit)) {
+        if (initLevel == 2 || (!fullInit && initLevel == 1)) {
             return;
         }
 
-        boolean needMoveTables = (initLevel == 0);
+        boolean firstInitialization = (initLevel == 0);
 
-        if (needMoveTables) {
+        if (firstInitialization) {
             Cubie.initPermSym2Raw();
 
             initCPermMove();
@@ -62,7 +60,6 @@ class Coordinates {
             initUDSliceMoveConj();
         }
 
-        //Pruning tables
         initMCPermPrun(fullInit);
         initPermCombPPrun(fullInit);
         initSliceTwistPrun(fullInit);
@@ -72,288 +69,412 @@ class Coordinates {
             initTwistFlipPrun(fullInit);
         }
 
-        initLevel = fullInit ? 2 : 1;
+        initLevel = fullInit ? 2 : Math.max(initLevel, 1);
     }
 
 
     static void setPruning(int[] table, int index, int value) {
-        table[index >> 3] ^= value << (index << 2); 
+        int wordIdx = index >>> 3;               
+        int shift = (index & 7) << 2;           
+        int mask = value << shift;
+        table[wordIdx] ^= mask;
     }
 
     static int getPruning(int[] table, int index) {
-        return table[index >> 3] >> (index << 2) & 0xf; 
+        int wordIdx = index >>> 3;
+        int shift = (index & 7) << 2;
+        return (table[wordIdx] >>> shift) & 0xF;
     }
+
 
     static void initUDSliceMoveConj() {
         Cubie src = new Cubie();
         Cubie dst = new Cubie();
 
-        for (int slice = 0; slice < N_SLICE; slice++) {
+        for (int slice = 0; slice < Constants.N_SLICE; slice++) {
             src.setUDSlice(slice);
 
-            // quarter-turns 
-            for (int m = 0; m < N_MOVES; m += 3) {
-                Cubie.EdgeMult(src, Cubie.moveCube[m], dst);
-                UDSliceMove[slice][m] = (char) dst.getUDSlice();
+            for (int move = 0; move < Constants.N_MOVES_PHASE1; move += 3) {
+                Cubie.EdgeMult(src, Cubie.moveCube[move], dst);
+                UDSliceMove[slice][move] = (char) dst.getUDSlice();
             }
 
-            // symmetry conj
             for (int s = 0; s < 16; s += 2) {
-                Cubie.EdgeConj(src, Cubie.SymMultInv[0][s], dst);
+                int inv = Cubie.SymMultInv[0][s];
+                Cubie.EdgeConj(src, inv, dst);
                 UDSliceConj[slice][s >> 1] = (char) dst.getUDSlice();
             }
         }
 
-        for (int slice = 0; slice < N_SLICE; slice++) {
-            for (int m = 0; m < N_MOVES; m += 3) {
-                int val = UDSliceMove[slice][m];
+        // Now fill in power-2 and power-3 moves from repeated quarter-turns
+        for (int slice = 0; slice < Constants.N_SLICE; slice++) {
+            for (int move = 0; move < Constants.N_MOVES_PHASE1; move += 3) {
+                int val = UDSliceMove[slice][move];
                 for (int k = 1; k < 3; k++) {
-                    val = UDSliceMove[val][m];
-                    UDSliceMove[slice][m + k] = (char) val;
+                    val = UDSliceMove[val][move];
+                    UDSliceMove[slice][move + k] = (char) val;
                 }
             }
         }
     }
 
+    // ---------- Phase 1 move tables: flip / twist ----------
 
     static void initFlipMove() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        for (int i = 0; i < N_FLIP_SYM; i++) {
+        Cubie dst = new Cubie();
+
+        for (int i = 0; i < Constants.N_FLIP_SYM; i++) {
             src.setFlip(Cubie.FlipS2R[i]);
-            for (int j = 0; j < N_MOVES; j++) {
-                Cubie.EdgeMult(src, Cubie.moveCube[j], dest);
-                FlipMove[i][j] = (char) dest.getFlipSym();
+            for (int m = 0; m < Constants.N_MOVES_PHASE1; m++) {
+                Cubie.EdgeMult(src, Cubie.moveCube[m], dst);
+                FlipMove[i][m] = (char) dst.getFlipSym();
             }
         }
     }
 
     static void initTwistMove() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        for (int i = 0; i < N_TWIST_SYM; i++) {
+        Cubie dst = new Cubie();
+
+        for (int i = 0; i < Constants.N_TWIST_SYM; i++) {
             src.setTwist(Cubie.TwistS2R[i]);
-            for (int j = 0; j < N_MOVES; j++) {
-                Cubie.CornMult(src, Cubie.moveCube[j], dest);
-                TwistMove[i][j] = (char) dest.getTwistSym();
+            for (int m = 0; m < Constants.N_MOVES_PHASE1; m++) {
+                Cubie.CornMult(src, Cubie.moveCube[m], dst);
+                TwistMove[i][m] = (char) dst.getTwistSym();
             }
         }
     }
 
+    // ---------- Phase 2 move tables: corner / edge / M perm ----------
+
     static void initCPermMove() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        for (int i = 0; i < N_PERM_SYM; i++) {
+        Cubie dst = new Cubie();
+
+        for (int i = 0; i < Constants.N_PERM_SYM; i++) {
             src.setCPerm(Cubie.EPermS2R[i]);
-            for (int j = 0; j < N_MOVES2; j++) {
-                Cubie.CornMult(src, Cubie.moveCube[CubeMapping.ud2std[j]], dest);
-                CPermMove[i][j] = (char) dest.getCPermSym();
+            for (int m = 0; m < Constants.N_MOVES_PHASE2; m++) {
+                int stdMove = CubeMapping.ud2std[m];
+                Cubie.CornMult(src, Cubie.moveCube[stdMove], dst);
+                CPermMove[i][m] = (char) dst.getCPermSym();
             }
         }
     }
 
     static void initEPermMove() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        for (int i = 0; i < N_PERM_SYM; i++) {
+        Cubie dst = new Cubie();
+
+        for (int i = 0; i < Constants.N_PERM_SYM; i++) {
             src.setEPerm(Cubie.EPermS2R[i]);
-            for (int j = 0; j < N_MOVES2; j++) {
-                Cubie.EdgeMult(src, Cubie.moveCube[CubeMapping.ud2std[j]], dest);
-                EPermMove[i][j] = (char) dest.getEPermSym();
+            for (int m = 0; m < Constants.N_MOVES_PHASE2; m++) {
+                int stdMove = CubeMapping.ud2std[m];
+                Cubie.EdgeMult(src, Cubie.moveCube[stdMove], dst);
+                EPermMove[i][m] = (char) dst.getEPermSym();
             }
         }
     }
 
     static void initMPermMoveConj() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        for (int i = 0; i < N_MPERM; i++) {
-            src.setMPerm(i);
-            for (int j = 0; j < N_MOVES2; j++) {
-                Cubie.EdgeMult(src, Cubie.moveCube[CubeMapping.ud2std[j]], dest);
-                MPermMove[i][j] = (char) dest.getMPerm();
+        Cubie dst = new Cubie();
+
+        for (int p = 0; p < Constants.N_MPERM; p++) {
+            src.setMPerm(p);
+
+            // Move table
+            for (int m = 0; m < Constants.N_MOVES_PHASE2; m++) {
+                int stdMove = CubeMapping.ud2std[m];
+                Cubie.EdgeMult(src, Cubie.moveCube[stdMove], dst);
+                MPermMove[p][m] = (char) dst.getMPerm();
             }
-            for (int j = 0; j < 16; j++) {
-                Cubie.EdgeConj(src, Cubie.SymMultInv[0][j], dest);
-                MPermConj[i][j] = (char) dest.getMPerm();
+
+            // Conjugation table
+            for (int s = 0; s < 16; s++) {
+                int inv = Cubie.SymMultInv[0][s];
+                Cubie.EdgeConj(src, inv, dst);
+                MPermConj[p][s] = (char) dst.getMPerm();
             }
         }
     }
+
+    // ---------- Phase 2 combined corner-comb parity tables ----------
 
     static void initCombPMoveConj() {
         Cubie src = new Cubie();
-        Cubie dest = new Cubie();
-        CCombPMove = new char[N_COMB][N_MOVES2];
-        for (int i = 0; i < N_COMB; i++) {
-            src.setCComb(i % 70);
-            for (int j = 0; j < N_MOVES2; j++) {
-                Cubie.CornMult(src, Cubie.moveCube[CubeMapping.ud2std[j]], dest);
-                CCombPMove[i][j] = (char) (dest.getCComb() + 70 * ((P2_PARITY_MOVE >> j & 1) ^ (i / 70)));
+        Cubie dst = new Cubie();
+
+        CCombPMove = new char[Constants.N_COMB][Constants.N_MOVES_PHASE2];
+
+        for (int c = 0; c < Constants.N_COMB; c++) {
+            int baseIndex = c % 70;
+            int parity = c / 70;
+
+            src.setCComb(baseIndex);
+
+            // Move table
+            for (int m = 0; m < Constants.N_MOVES_PHASE2; m++) {
+                int stdMove = CubeMapping.ud2std[m];
+                Cubie.CornMult(src, Cubie.moveCube[stdMove], dst);
+
+                int comb = dst.getCComb();
+                int flipParity = (Constants.P2_PARITY_MOVE >>> m) & 1;
+                int fullIndex = comb + 70 * (flipParity ^ parity);
+
+                CCombPMove[c][m] = (char) fullIndex;
             }
-            for (int j = 0; j < 16; j++) {
-                Cubie.CornerConj(src, Cubie.SymMultInv[0][j], dest);
-                CCombPConj[i][j] = (char) (dest.getCComb() + 70 * (i / 70));
+
+            // Conjugation table
+            for (int s = 0; s < 16; s++) {
+                int inv = Cubie.SymMultInv[0][s];
+                Cubie.CornerConj(src, inv, dst);
+
+                int comb = dst.getCComb();
+                int fullIndex = comb + 70 * parity;
+                CCombPConj[c][s] = (char) fullIndex;
             }
         }
     }
+
+    // ---------- Utility: detect any zero nibble ----------
 
     static boolean hasZero(int val) {
-        return ((val - 0x11111111) & ~val & 0x88888888) != 0;
+        int tmp = (val - Constants.PRUN_UNIT)
+                & ~val
+                & Constants.PRUN_ZERO_MASK;
+        return tmp != 0;
     }
 
+    // ---------- Generic raw/sym pruning builder ----------
 
-    static void initRawSymPrun(int[] PrunTable, final char[][] RawMove, final char[][] RawConj, final char[][] SymMove, final char[] SymState, final int PrunFlag, final boolean fullInit) {
+    static void initRawSymPrun(
+            int[] prunTable,
+            final char[][] rawMove,
+            final char[][] rawConj,
+            final char[][] symMove,
+            final char[] symState,
+            final int prunFlag,
+            final boolean fullInit
+    ) {
+        // Decode flag structure
+        final int symShift    =  prunFlag        & 0xF;
+        final boolean e2cFlag = (prunFlag >> 4 & 1) == 1;
+        final boolean phase2  = (prunFlag >> 5 & 1) == 1;
+        final int invDepth    = (prunFlag >> 8)  & 0xF;
+        final int maxDepth    = (prunFlag >> 12) & 0xF;
+        final int minDepth    = (prunFlag >> 16) & 0xF;
 
-        final int SYM_SHIFT = PrunFlag & 0xf;
-        final int SYM_E2C_MAGIC = ((PrunFlag >> 4) & 1) == 1 ? Cubie.SYM_E2C_MAGIC : 0x00000000;
-        final boolean IS_PHASE2 = ((PrunFlag >> 5) & 1) == 1;
-        final int INV_DEPTH = PrunFlag >> 8 & 0xf;
-        final int MAX_DEPTH = PrunFlag >> 12 & 0xf;
-        final int MIN_DEPTH = PrunFlag >> 16 & 0xf;
-        final int SEARCH_DEPTH = fullInit ? MAX_DEPTH : MIN_DEPTH;
+        final int searchDepth = fullInit ? maxDepth : minDepth;
 
-        final int SYM_MASK = (1 << SYM_SHIFT) - 1;
-        final boolean ISTFP = RawMove == null;
-        final int N_RAW = ISTFP ? N_FLIP : RawMove.length;
-        final int N_SIZE = N_RAW * SymMove.length;
-        final int N_MOVES = IS_PHASE2 ? 10 : 18;
-        final int NEXT_AXIS_MAGIC = N_MOVES == 10 ? 0x42 : 0x92492;
+        final int symMask = (1 << symShift) - 1;
+        final boolean twistFlipOnly = (rawMove == null);
 
-        int depth = getPruning(PrunTable, N_SIZE) - 1;
-        int done = 0;
+        final int rawCount = twistFlipOnly
+                ? Constants.N_FLIP
+                : rawMove.length;
+        final int symCount = symMove.length;
+        final int totalStates = rawCount * symCount;
 
+        final int moveCount = phase2
+                ? Constants.N_MOVES_PHASE2
+                : Constants.N_MOVES_PHASE1;
+
+        final int skipMagic =
+                phase2 ? Constants.SKIP_MAGIC_PHASE2
+                       : Constants.SKIP_MAGIC_PHASE1;
+
+        final int e2cMagic =
+                e2cFlag ? Cubie.SYM_E2C_MAGIC : 0x00000000;
+
+        // Determine current depth from the "sentinel" entry
+        int depth = getPruning(prunTable, totalStates) - 1;
 
         if (depth == -1) {
-            for (int i = 0; i < N_SIZE / 8 + 1; i++) {
-                PrunTable[i] = 0x11111111;
+            // Fresh table: fill with PRUN_UNIT "infinity"
+            int words = totalStates / 8 + 1;
+            for (int i = 0; i < words; i++) {
+                prunTable[i] = Constants.PRUN_UNIT;
             }
-            setPruning(PrunTable, 0, 0 ^ 1);
+            // Mark solved state (0) with distance 0^1 = 1 (special encoding)
+            setPruning(prunTable, 0, 0 ^ 1);
             depth = 0;
-            done = 1;
         }
 
-        while (depth < SEARCH_DEPTH) {
-            int mask = (depth + 1) * 0x11111111 ^ 0xffffffff;
-            for (int i = 0; i < PrunTable.length; i++) {
-                int val = PrunTable[i] ^ mask;
-                val &= val >> 1;
-                PrunTable[i] += val & (val >> 2) & 0x11111111;
+        while (depth < searchDepth) {
+            // "Advance" the frontier by one layer in all words
+            int targetDepth = depth + 1;
+            int xorMask = (targetDepth * Constants.PRUN_UNIT) ^ 0xFFFFFFFF;
+
+            for (int i = 0; i < prunTable.length; i++) {
+                int v = prunTable[i] ^ xorMask;
+                v &= v >>> 1;
+                prunTable[i] += v & (v >>> 2) & Constants.PRUN_UNIT;
             }
 
-            boolean inv = depth > INV_DEPTH;
-            int select = inv ? (depth + 2) : depth;
-            int selArrMask = select * 0x11111111;
-            int check = inv ? depth : (depth + 2);
+            boolean inverseSearch = depth > invDepth;
+
+            int selectValue = inverseSearch ? (depth + 2) : depth;
+            int selectMask = selectValue * Constants.PRUN_UNIT;
+
+            int checkValue = inverseSearch ? depth : (depth + 2);
+
             depth++;
-            int xorVal = depth ^ (depth + 1);
-            int val = 0;
-            for (int i = 0; i < N_SIZE; i++, val >>= 4) {
-                if ((i & 7) == 0) {
-                    val = PrunTable[i >> 3];
-                    if (!hasZero(val ^ selArrMask)) {
-                        i += 7;
+            int xorValue = depth ^ (depth + 1);
+
+            int word = 0;
+
+            for (int stateIndex = 0; stateIndex < totalStates; stateIndex++, word >>>= 4) {
+
+                if ((stateIndex & 7) == 0) {
+                    word = prunTable[stateIndex >>> 3];
+
+                    if (!hasZero(word ^ selectMask)) {
+                        stateIndex += 7;
                         continue;
                     }
                 }
-                if ((val & 0xf) != select) {
+
+                if ((word & 0xF) != selectValue) {
                     continue;
                 }
-                int raw = i % N_RAW;
-                int sym = i / N_RAW;
-                int flip = 0, fsym = 0;
-                if (ISTFP) {
-                    flip = Cubie.FlipR2S[raw];
-                    fsym = flip & 7;
-                    flip >>= 3;
+
+                int raw = stateIndex % rawCount;
+                int sym = stateIndex / rawCount;
+
+                int flipState = 0;
+                int flipSymPart = 0;
+
+                if (twistFlipOnly) {
+                    int flipSym = Cubie.FlipR2S[raw];
+                    flipSymPart = flipSym & 7;
+                    flipState = flipSym >>> 3;
                 }
 
-                for (int m = 0; m < N_MOVES; m++) {
-                    int symx = SymMove[sym][m];
-                    int rawx;
-                    if (ISTFP) {
-                        rawx = Cubie.FlipS2RF[
-                                   FlipMove[flip][Cubie.Sym8Move[m << 3 | fsym]] ^
-                                   fsym ^ (symx & SYM_MASK)];
-                    } else {
-                        rawx = RawConj[RawMove[raw][m]][symx & SYM_MASK];
+                for (int move = 0; move < moveCount; move++) {
+                    int symX = symMove[sym][move];
+                    int rawX;
 
+                    if (twistFlipOnly) {
+                        int idx1 = Cubie.Sym8Move[(move << 3) | flipSymPart];
+                        char flipNext = FlipMove[flipState][idx1];
+                        int xorPart = flipSymPart ^ (symX & symMask);
+                        int combined = flipNext ^ xorPart;
+                        rawX = Cubie.FlipS2RF[combined];
+                    } else {
+                        int conjSym = symX & symMask;
+                        rawX = rawConj[rawMove[raw][move]][conjSym];
                     }
-                    symx >>= SYM_SHIFT;
-                    int idx = symx * N_RAW + rawx;
-                    int prun = getPruning(PrunTable, idx);
-                    if (prun != check) {
-                        if (prun < depth - 1) {
-                            m += NEXT_AXIS_MAGIC >> m & 3;
+
+                    symX >>>= symShift;
+                    int idx = symX * rawCount + rawX;
+
+                    int prVal = getPruning(prunTable, idx);
+                    if (prVal != checkValue) {
+                        if (prVal < depth - 1) {
+                            move += (skipMagic >>> move) & 3;
                         }
                         continue;
                     }
-                    done++;
-                    if (inv) {
-                        setPruning(PrunTable, i, xorVal);
-                        break;
+
+                    if (inverseSearch) {
+                        setPruning(prunTable, stateIndex, xorValue);
+                    } else {
+                        setPruning(prunTable, idx, xorValue);
                     }
-                    setPruning(PrunTable, idx, xorVal);
-                    for (int j = 1, symState = SymState[symx]; (symState >>= 1) != 0; j++) {
-                        if ((symState & 1) != 1) {
+
+                    // fill all symmetric states for this representative
+                    int symStateBits = symState[symX];
+
+                    for (int s = 1; (symStateBits >>>= 1) != 0; s++) {
+                        if ((symStateBits & 1) == 0) {
                             continue;
                         }
-                        int idxx = symx * N_RAW;
-                        if (ISTFP) {
-                            idxx += Cubie.FlipS2RF[Cubie.FlipR2S[rawx] ^ j];
+
+                        int idxSym = symX * rawCount;
+
+                        if (twistFlipOnly) {
+                            int baseFlipSym = Cubie.FlipR2S[rawX];
+                            idxSym += Cubie.FlipS2RF[baseFlipSym ^ s];
                         } else {
-                            idxx += RawConj[rawx][j ^ (SYM_E2C_MAGIC >> (j << 1) & 3)];
+                            int shift = (e2cMagic >>> (s << 1)) & 3;
+                            idxSym += rawConj[rawX][s ^ shift];
                         }
-                        if (getPruning(PrunTable, idxx) == check) {
-                            setPruning(PrunTable, idxx, xorVal);
-                            done++;
+
+                        if (getPruning(prunTable, idxSym) == checkValue) {
+                            setPruning(prunTable, idxSym, xorValue);
                         }
+                    }
+
+                    if (inverseSearch) {
+                        break;
                     }
                 }
             }
-            // System.out.println(String.format("%2d%10d%10f", depth, done, (System.nanoTime() - tt) / 1e6d));
         }
     }
+
+    // ---------- High-level helpers to build specific pruning tables ----------
 
     static void initTwistFlipPrun(boolean fullInit) {
         initRawSymPrun(
-            TwistFlipPrun,
-            null, null,
-            TwistMove, Cubie.SymStateTwist, 0x19603,
-            fullInit
+                TwistFlipPrun,
+                null,
+                null,
+                TwistMove,
+                Cubie.SymStateTwist,
+                Constants.PRUNFLAG_TWIST_FLIP,
+                fullInit
         );
     }
 
     static void initSliceTwistPrun(boolean fullInit) {
         initRawSymPrun(
-            UDSliceTwistPrun,
-            UDSliceMove, UDSliceConj,
-            TwistMove, Cubie.SymStateTwist, 0x69603,
-            fullInit
+                UDSliceTwistPrun,
+                UDSliceMove,
+                UDSliceConj,
+                TwistMove,
+                Cubie.SymStateTwist,
+                Constants.PRUNFLAG_SLICE_TWIST,
+                fullInit
         );
     }
 
     static void initSliceFlipPrun(boolean fullInit) {
         initRawSymPrun(
-            UDSliceFlipPrun,
-            UDSliceMove, UDSliceConj,
-            FlipMove, Cubie.SymStateFlip, 0x69603,
-            fullInit
+                UDSliceFlipPrun,
+                UDSliceMove,
+                UDSliceConj,
+                FlipMove,
+                Cubie.SymStateFlip,
+                Constants.PRUNFLAG_SLICE_FLIP,
+                fullInit
         );
     }
 
     static void initMCPermPrun(boolean fullInit) {
         initRawSymPrun(
-            MCPermPrun,
-            MPermMove, MPermConj,
-            CPermMove, Cubie.SymStatePerm, 0x8ea34,
-            fullInit
+                MCPermPrun,
+                MPermMove,
+                MPermConj,
+                CPermMove,
+                Cubie.SymStatePerm,
+                Constants.PRUNFLAG_MC_PERM,
+                fullInit
         );
     }
 
     static void initPermCombPPrun(boolean fullInit) {
-        initRawSymPrun(EPermCCombPPrun, CCombPMove, CCombPConj, EPermMove, Cubie.SymStatePerm, 0x7d824, fullInit);
+        initRawSymPrun(
+                EPermCCombPPrun,
+                CCombPMove,
+                CCombPConj,
+                EPermMove,
+                Cubie.SymStatePerm,
+                Constants.PRUNFLAG_EPERM_COMBP,
+                fullInit
+        );
     }
-
 
     int twist;
     int tsym;
@@ -367,79 +488,155 @@ class Coordinates {
 
     void set(Coordinates node) {
         this.twist = node.twist;
-        this.tsym = node.tsym;
-        this.flip = node.flip;
-        this.fsym = node.fsym;
+        this.tsym  = node.tsym;
+        this.flip  = node.flip;
+        this.fsym  = node.fsym;
         this.slice = node.slice;
-        this.prun = node.prun;
+        this.prun  = node.prun;
 
         if (PhaseSolver.USE_CONJ_PRUN) {
             this.twistc = node.twistc;
-            this.flipc = node.flipc;
+            this.flipc  = node.flipc;
         }
     }
 
-    void calcPruning(boolean isPhase1) {
-        prun = Math.max(Math.max(getPruning(UDSliceTwistPrun,twist * N_SLICE + UDSliceConj[slice][tsym]),getPruning(UDSliceFlipPrun,flip * N_SLICE + UDSliceConj[slice][fsym])),
-                Math.max(PhaseSolver.USE_CONJ_PRUN ? getPruning(TwistFlipPrun,(twistc >> 3) << 11 | Cubie.FlipS2RF[flipc ^ (twistc & 7)]) : 0,PhaseSolver.USE_TWIST_FLIP_PRUN ? getPruning(TwistFlipPrun,twist << 11 | Cubie.FlipS2RF[flip << 3 | (fsym ^ tsym)]) : 0));
-    }
+    //Phase 1 pruning
 
-    boolean setWithPrun(Cubie cc, int depth) {
+    boolean setPrun(Cubie cc, int depthLimit) {
         twist = cc.getTwistSym();
-        flip = cc.getFlipSym();
-        tsym = twist & 7;
-        twist = twist >> 3;
+        flip  = cc.getFlipSym();
 
-        prun = PhaseSolver.USE_TWIST_FLIP_PRUN ? getPruning(TwistFlipPrun,twist << 11 | Cubie.FlipS2RF[flip ^ tsym]) : 0;
-        if (prun > depth) {
+        tsym  = twist & 7;
+        twist >>>= 3;
+
+        prun = PhaseSolver.USE_TWIST_FLIP_PRUN
+                ? getPruning(
+                        TwistFlipPrun,
+                        (twist << 11) | Cubie.FlipS2RF[flip ^ tsym]
+                  )
+                : 0;
+
+        if (prun > depthLimit) {
             return false;
         }
 
         fsym = flip & 7;
-        flip = flip >> 3;
+        flip >>>= 3;
 
         slice = cc.getUDSlice();
-        prun = Math.max(prun, Math.max(getPruning(UDSliceTwistPrun,twist * N_SLICE + UDSliceConj[slice][tsym]),
-                            getPruning(UDSliceFlipPrun,flip * N_SLICE + UDSliceConj[slice][fsym])));
-        if (prun > depth) {
+
+        int idxST = twist * Constants.N_SLICE + UDSliceConj[slice][tsym];
+        int idxSF = flip  * Constants.N_SLICE + UDSliceConj[slice][fsym];
+
+        prun = Math.max(
+                prun,
+                Math.max(
+                        getPruning(UDSliceTwistPrun, idxST),
+                        getPruning(UDSliceFlipPrun, idxSF)
+                )
+        );
+
+        if (prun > depthLimit) {
             return false;
         }
 
         if (PhaseSolver.USE_CONJ_PRUN) {
-            Cubie pc = new Cubie();
-            Cubie.CornerConj(cc, 1, pc);
-            Cubie.EdgeConj(cc, 1, pc);
-            twistc = pc.getTwistSym();
-            flipc = pc.getFlipSym();
-            prun = Math.max(prun,getPruning(TwistFlipPrun,(twistc >> 3) << 11 | Cubie.FlipS2RF[flipc ^ (twistc & 7)]));
+            Cubie conj = new Cubie();
+            Cubie.CornerConj(cc, 1, conj);
+            Cubie.EdgeConj(cc, 1, conj);
+
+            twistc = conj.getTwistSym();
+            flipc  = conj.getFlipSym();
+
+            int tSym = twistc & 7;
+            int tIdx = twistc >>> 3;
+
+            int key = (tIdx << 11) | Cubie.FlipS2RF[flipc ^ tSym];
+
+            prun = Math.max(
+                    prun,
+                    getPruning(TwistFlipPrun, key)
+            );
         }
 
-        return prun <= depth;
+        return prun <= depthLimit;
     }
 
-    int pruningMovesConj(Coordinates cc, int m) {
-        m = Cubie.SymMove[3][m];
-        flipc = FlipMove[cc.flipc >> 3][Cubie.Sym8Move[m << 3 | cc.flipc & 7]] ^ (cc.flipc & 7);
-        twistc = TwistMove[cc.twistc >> 3][Cubie.Sym8Move[m << 3 | cc.twistc & 7]] ^ (cc.twistc & 7);
-        return getPruning(TwistFlipPrun, (twistc >> 3) << 11 | Cubie.FlipS2RF[flipc ^ (twistc & 7)]);
+    void calcPruning(boolean isPhase1) {
+        int idxST = twist * Constants.N_SLICE + UDSliceConj[slice][tsym];
+        int idxSF = flip  * Constants.N_SLICE + UDSliceConj[slice][fsym];
+
+        int base = Math.max(
+                getPruning(UDSliceTwistPrun, idxST),
+                getPruning(UDSliceFlipPrun, idxSF)
+        );
+
+        int conjVal = 0;
+        if (PhaseSolver.USE_CONJ_PRUN) {
+            int tSym = twistc & 7;
+            int tIdx = twistc >>> 3;
+            int key = (tIdx << 11) | Cubie.FlipS2RF[flipc ^ tSym];
+            conjVal = getPruning(TwistFlipPrun, key);
+        }
+
+        int tfVal = 0;
+        if (PhaseSolver.USE_TWIST_FLIP_PRUN) {
+            int key = (twist << 11) | Cubie.FlipS2RF[(flip << 3) | (fsym ^ tsym)];
+            tfVal = getPruning(TwistFlipPrun, key);
+        }
+
+        prun = Math.max(base, Math.max(conjVal, tfVal));
     }
 
 
-    int pruningMoves(Coordinates cc, int m, boolean isPhase1) {
-        slice = UDSliceMove[cc.slice][m];
+    int pruningMoves(Coordinates node, int move, boolean isPhase1) {
+        slice = UDSliceMove[node.slice][move];
 
-        flip = FlipMove[cc.flip][Cubie.Sym8Move[m << 3 | cc.fsym]];
-        fsym = (flip & 7) ^ cc.fsym;
-        flip >>= 3;
+        int flipMoveIndex = Cubie.Sym8Move[(move << 3) | node.fsym];
+        flip = FlipMove[node.flip][flipMoveIndex];
+        fsym = (flip & 7) ^ node.fsym;
+        flip >>>= 3;
 
-        twist = TwistMove[cc.twist][Cubie.Sym8Move[m << 3 | cc.tsym]];
-        tsym = (twist & 7) ^ cc.tsym;
-        twist >>= 3;
+        int twistMoveIndex = Cubie.Sym8Move[(move << 3) | node.tsym];
+        twist = TwistMove[node.twist][twistMoveIndex];
+        tsym = (twist & 7) ^ node.tsym;
+        twist >>>= 3;
 
-        prun = Math.max(Math.max(getPruning(UDSliceTwistPrun,twist * N_SLICE + UDSliceConj[slice][tsym]),getPruning(UDSliceFlipPrun,flip * N_SLICE + UDSliceConj[slice][fsym])),
-                PhaseSolver.USE_TWIST_FLIP_PRUN ? getPruning(TwistFlipPrun,twist << 11 | Cubie.FlipS2RF[flip << 3 | (fsym ^ tsym)]) : 0);
+        int idxST = twist * Constants.N_SLICE + UDSliceConj[slice][tsym];
+        int idxSF = flip  * Constants.N_SLICE + UDSliceConj[slice][fsym];
+
+        int base = Math.max(getPruning(UDSliceTwistPrun, idxST), getPruning(UDSliceFlipPrun, idxSF));
+
+        int tfVal = 0;
+        if (PhaseSolver.USE_TWIST_FLIP_PRUN) { 
+            int key = (twist << 11) | Cubie.FlipS2RF[(flip << 3) | (fsym ^ tsym)]; tfVal = getPruning(TwistFlipPrun, key);
+        }
+
+        prun = Math.max(base, tfVal);
         return prun;
     }
 
-    
+    int pruningMovesConj(Coordinates node, int move) {
+        int conjMove = Cubie.SymMove[3][move];
+
+        int flipStateIndex = node.flipc >>> 3;
+        int flipSymBits    = node.flipc & 7;
+
+        int flipMoveIndex = Cubie.Sym8Move[(conjMove << 3) | flipSymBits];
+        flipc = FlipMove[flipStateIndex][flipMoveIndex] ^ flipSymBits;
+
+        int twistStateIndex = node.twistc >>> 3;
+        int twistSymBits    = node.twistc & 7;
+
+        int twistMoveIndex = Cubie.Sym8Move[(conjMove << 3) | twistSymBits];
+        twistc = TwistMove[twistStateIndex][twistMoveIndex] ^ twistSymBits;
+
+        int tSym = twistc & 7;
+        int tIdx = twistc >>> 3;
+
+        int key = (tIdx << 11) | Cubie.FlipS2RF[flipc ^ tSym];
+        return getPruning(TwistFlipPrun, key);
+    }
 }
+
+
